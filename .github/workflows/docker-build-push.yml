@@ -33,6 +33,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile.v5
           push: false
           tags: ${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
           cache-from: type=gha
@@ -68,6 +69,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile.v5
           push: true
           build-args: |
             JAVA_VERSION=17.0.13
