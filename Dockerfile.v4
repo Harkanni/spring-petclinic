@@ -1,0 +1,40 @@
+# ---- Build stage ----
+FROM bellsoft/liberica-openjdk-debian:17.0.13 AS build
+WORKDIR /app
+
+COPY gradlew ./
+COPY gradle ./gradle
+COPY build.gradle settings.gradle ./
+RUN chmod +x gradlew && ./gradlew --no-daemon dependencies
+
+COPY src ./src
+RUN ./gradlew --no-daemon bootJar
+
+# ---- Runtime stage ----
+FROM bellsoft/liberica-openjre-debian:17.0.13-cds
+WORKDIR /app
+
+RUN groupadd --system spring && useradd --system --gid spring --no-create-home --shell /usr/sbin/nologin spring
+
+COPY --from=build --chown=spring:spring /app/build/libs/*.jar app.jar
+
+USER spring
+
+EXPOSE 8080
+
+CMD ["java", "-jar", "app.jar"]
+
+
+# Notes on the implementation (kept the two stage-header comments since they're just navigational, not explanatory):
+
+# Build stage split into two COPY blocks: gradlew/gradle//build.gradle/settings.gradle come in first and get their own RUN ... dependencies step, before src/ is copied. Docker caches each layer independently — editing application code invalidates only the final COPY src + bootJar layers; the dependency-download layer stays cached and doesn't re-run.
+
+# Pinned to 17.0.13 on both stages (build and runtime), matching your build.gradle toolchain requirement exactly, and avoiding the version drift that comes from floating tags like :17 or :25.
+
+# groupadd/useradd creates a dedicated spring system user with no home directory and nologin shell — used only to run the app, never for interactive access.
+
+# COPY --from=build --chown=spring:spring pulls the built jar from the first stage into the final image and sets ownership in the same instruction, so no root-owned intermediate layer exists.
+
+# USER spring switches the container's runtime identity before CMD executes — the JVM process itself runs unprivileged, not as root.
+
+# Final image contains no JDK, no Gradle, no source code — only the JRE and the compiled jar, since everything else was left behind in the discarded build stage.

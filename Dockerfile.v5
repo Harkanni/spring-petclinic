@@ -1,0 +1,51 @@
+ARG JAVA_VERSION=17.0.13
+ARG APP_NAME=spring-petclinic
+
+# ---- Build stage ----
+FROM bellsoft/liberica-openjdk-debian:${JAVA_VERSION} AS build
+WORKDIR /app
+
+COPY gradlew ./
+COPY gradle ./gradle
+COPY build.gradle settings.gradle ./
+RUN chmod +x gradlew && ./gradlew --no-daemon dependencies
+
+COPY src ./src
+RUN ./gradlew --no-daemon bootJar
+
+# ---- Runtime stage ----
+FROM bellsoft/liberica-openjre-debian:${JAVA_VERSION}-cds
+ARG APP_NAME
+WORKDIR /app
+
+RUN groupadd --system spring \
+    && useradd --system --gid spring --no-create-home --shell /usr/sbin/nologin spring
+
+COPY --from=build --chown=spring:spring /app/build/libs/*.jar app.jar
+
+USER spring
+
+EXPOSE 8080
+
+CMD ["java", "-jar", "app.jar"]
+
+LABEL org.opencontainers.image.title="${APP_NAME}"
+LABEL org.opencontainers.image.source="https://github.com/spring-projects/spring-petclinic"
+LABEL org.opencontainers.image.description="Spring Boot Petclinic application"
+
+
+
+
+
+#  Notes on the implementation:
+
+#  ARG JAVA_VERSION=17.0.13 at the top, referenced in both FROM lines — this is the single biggest maintainability win. Before, bumping the JDK version meant editing 17.0.13 in two separate places and hoping you didn't miss one (exactly the kind of drift that caused your earlier toolchain mismatch). Now it's one line to change, and both stages update together automatically. You can also override it at build time without touching the file: docker build --build-arg JAVA_VERSION=21.0.4 .
+
+#  ARG APP_NAME=spring-petclinic + LABEL metadata — bakes the image's identity, source repo, and purpose directly into the image itself. Anyone (including future-you) running docker inspect on this image months from now can tell what it is and where it came from, without needing to trace it back to a specific Dockerfile or README.
+
+#  Global ARG scoping: declaring JAVA_VERSION before the first FROM makes it available to every subsequent FROM line in the file — that's what lets both stages share the exact same version without redeclaring it per-stage.
+  
+
+#  One tradeoff worth naming: this file now assumes the -cds suffix always exists for whatever JAVA_VERSION you set. If you ever bump to a version where BellSoft hasn't published a -cds variant, the runtime stage's FROM will fail to resolve — a reasonable price for the reuse, but worth knowing before a version bump surprises you.
+
+

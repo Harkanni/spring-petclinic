@@ -1,0 +1,24 @@
+# Local build output and caches — must never be copied in, otherwise a
+# stale local .gradle/ or build/ directory could get baked into the image
+# and produce different results depending on who runs `docker build`.
+.gradle/
+build/
+out/
+
+# IDE and OS cruft — irrelevant to the build but changes often, which
+# would otherwise invalidate Docker's layer cache unpredictably.
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# VCS metadata — not needed inside the image and changes on every commit.
+.git/
+.gitignore
+
+# Never bake secrets or environment-specific config into the image.
+.env
+*.local
+
+
+

@@ -1,0 +1,52 @@
+# ---- Build stage ----
+# Pinned to an exact patch version + vendor, not a floating major tag like
+# ":17" or ":25" — those get repointed to new patch releases over time,
+# which means the "same" Dockerfile can silently pull a different JDK
+# build on a different day. Check the actual digest for your platform with:
+#   docker pull bellsoft/liberica-openjdk-debian:17.0.13
+#   docker inspect --format='{{.RepoDigests}}' bellsoft/liberica-openjdk-debian:17.0.13
+# and pin by @sha256:... instead of tag alone for full immutability.
+
+
+FROM bellsoft/liberica-openjdk-debian:17.0.13 AS build
+
+WORKDIR /app
+
+# Copy only what's needed to resolve dependencies first. This layer is
+# now independent of source code changes — Gradle re-downloads deps
+# only when these specific files change, giving predictable, repeatable
+# dependency resolution across builds and across machines.
+
+COPY gradlew ./
+
+COPY gradle ./gradle
+
+COPY build.gradle settings.gradle ./
+
+RUN chmod +x gradlew && ./gradlew --no-daemon dependencies
+
+# Now copy source and build. Using --no-daemon avoids a background
+# process whose warm state could differ between build runs; every build
+# starts from the same clean state.
+
+COPY src ./src
+RUN ./gradlew --no-daemon bootJar
+
+# ---- Runtime stage ----
+# Match the JDK version used in the build stage exactly (both 17.0.13)
+# so runtime behavior can't drift from what was actually compiled/tested.
+
+FROM bellsoft/liberica-openjre-debian:17.0.13-cds
+
+WORKDIR /app
+
+COPY --from=build /app/build/libs/*.jar app.jar
+
+EXPOSE 8080
+
+CMD ["java", "-jar", "app.jar"]
+
+
+
+
+
