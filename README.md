@@ -42,18 +42,56 @@ See below for more details.
 
 ## Building a Container
 
-There is no `Dockerfile` in this project. You can build a container image (if you have a docker daemon) using the Spring Boot build plugin:
+Unlike the upstream project — which has no `Dockerfile` and relies on the Spring Boot build plugin (`./mvnw spring-boot:build-image`) — this fork includes a custom, hand-built multi-stage `Dockerfile` optimized for reproducibility, security, and maintainability.
+
+Build the image:
 
 ```bash
-./mvnw spring-boot:build-image
+docker build -t petclinic-image-1:v1 .
 ```
+
+Optionally override the JDK version or app name at build time (defaults are `17.0.13` and `spring-petclinic`, defined as `ARG`s at the top of the Dockerfile):
+
+```bash
+docker build --build-arg JAVA_VERSION=17.0.13 --build-arg APP_NAME=spring-petclinic -t petclinic-image-1:v1 .
+```
+
+### What the Dockerfile does differently
+
+- **Multi-stage build** — a `bellsoft/liberica-openjdk-debian` stage compiles the app with Gradle; only the resulting jar is copied into a separate, much smaller `bellsoft/liberica-openjre-debian` runtime stage. No JDK, Gradle, or source code ships in the final image.
+- **Reproducible builds** — the JDK version is pinned to an exact patch release (`17.0.13`, matching this project's Gradle toolchain requirement) via a single `ARG`, rather than a floating tag like `:17` that can silently resolve to a different build over time. Dependency-resolution files (`gradlew`, `gradle/`, `build.gradle`, `settings.gradle`) are copied and cached in their own layer, separate from application source, so editing code doesn't invalidate the dependency cache.
+- **Security hardening** — the runtime stage creates and runs as a dedicated non-root `spring` user (no home directory, `nologin` shell) instead of defaulting to root. Ownership is set at `COPY` time via `--chown` to avoid leaving root-owned files in the image history.
+- **Maintainability** — `JAVA_VERSION` and `APP_NAME` are declared once as `ARG`s at the top of the file and reused across both build stages, so a version bump is a single-line change instead of a hunt-and-replace across the file.
 
 ## Running the Container Image
 
 ```bash
-docker images | grep petclinic
-docker run -p 8080:8080 docker.io/library/spring-petclinic:latest
+docker run --rm -p 8080:8080 petclinic-image-1:v1
 ```
+
+This runs Petclinic against the default in-memory H2 database. Visit <http://localhost:8080/>.
+
+### Running against MySQL
+
+To point the container at MySQL instead of the default H2 database, pass `SPRING_PROFILES_ACTIVE=mysql` as a runtime environment variable — no image rebuild is needed, since the profile is a runtime concern, not something baked into the image:
+
+```bash
+docker run --rm -p 8080:8080 -e SPRING_PROFILES_ACTIVE=mysql petclinic-image-1:v1
+```
+
+You'll also need a MySQL instance the app can reach. Start one with Docker:
+
+```bash
+docker run -e MYSQL_USER=petclinic -e MYSQL_PASSWORD=petclinic -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=petclinic -p 3306:3306 mysql:9.7
+```
+
+or via the project's `docker-compose.yml`:
+
+```bash
+docker compose up mysql
+```
+
+The same pattern applies for PostgreSQL, using `SPRING_PROFILES_ACTIVE=postgres` and the corresponding `postgres` service in `docker-compose.yml`.
 
 ## In case you find a bug/suggested improvement for Spring Petclinic
 
@@ -65,7 +103,7 @@ In its default configuration, Petclinic uses an in-memory database (H2) which
 gets populated at startup with data. The h2 console is exposed at `http://localhost:8080/h2-console`,
 and it is possible to inspect the content of the database using the `jdbc:h2:mem:<uuid>` URL. The UUID is printed at startup to the console.
 
-A similar setup is provided for MySQL and PostgreSQL if a persistent database configuration is needed. Note that whenever the database type changes, the app needs to run with a different profile: `spring.profiles.active=mysql` for MySQL or `spring.profiles.active=postgres` for PostgreSQL. See the [Spring Boot documentation](https://docs.spring.io/spring-boot/how-to/properties-and-configuration.html#howto.properties-and-configuration.set-active-spring-profiles) for more detail on how to set the active profile.
+A similar setup is provided for MySQL and PostgreSQL if a persistent database configuration is needed. Note that whenever the database type changes, the app needs to run with a different profile: `spring.profiles.active=mysql` for MySQL or `spring.profiles.active=postgres` for PostgreSQL. See the [Spring Boot documentation](https://docs.spring.io/spring-boot/how-to/properties-and-configuration.html#howto.properties-and-configuration.set-active-spring-profiles) for more detail on how to set the active profile. When running via this project's Docker image, set this via the `SPRING_PROFILES_ACTIVE` environment variable as described above.
 
 You can start MySQL or PostgreSQL locally with whatever installer works for your OS or use docker:
 
@@ -133,7 +171,7 @@ The following items should be installed in your system:
 
 1. Inside IntelliJ IDEA:
 
-    In the main menu, choose `File -> Open` and select the Petclinic [pom.xml](pom.xml). Click on the `Open` button.
+    In the main menu, choose `File -> Open` and select the Petclinic [pom.xml](pom.xml). Click on the `Open` button.
 
     - CSS files are generated from the Maven build. You can build them on the command line `./mvnw generate-resources` or right-click on the `spring-petclinic` project then `Maven -> Generates sources and Update Folders`.
 
