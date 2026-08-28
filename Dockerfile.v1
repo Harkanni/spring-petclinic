@@ -1,0 +1,8 @@
+FROM bellsoft/liberica-openjdk-debian:17
+
+WORKDIR /app
+
+COPY . .
+
+CMD ["./gradlew", "bootRun", "--no-daemon"]
+    
